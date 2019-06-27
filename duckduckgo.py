@@ -50,7 +50,7 @@ def query(qstr, safesearch=True, html=False, meanings=True, **kwargs):
         }
     params.update(kwargs)
     encparams = parse.urlencode(params)
-    url = 'http://api.duckduckgo.com/?' + encparams
+    url = 'https://api.duckduckgo.com/?' + encparams
 
     req = request.urlopen(url)
     json = j.loads(req.read())

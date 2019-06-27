@@ -1,2 +1,4 @@
 # ide
 .idea
+# cache
+__pycache__
