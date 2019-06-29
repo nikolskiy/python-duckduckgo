@@ -12,10 +12,8 @@ from urllib import request, parse
 import json as j
 import sys
 
-__version__ = 0.242
 
-
-def query(qstr, safesearch=True, html=False, meanings=True, **kwargs):
+def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
     """
     Query DuckDuckGo, returning a Results object.
 
@@ -37,13 +35,13 @@ def query(qstr, safesearch=True, html=False, meanings=True, **kwargs):
     Any other keyword arguments are passed directly to DuckDuckGo as URL params.
     """
 
-    safesearch = '1' if safesearch else '-1'
+    safe_search = '1' if safe_search else '-1'
     html = '0' if html else '1'
     meanings = '0' if meanings else '1'
     params = {
         'q': qstr,
         'o': 'json',
-        'kp': safesearch,
+        'kp': safe_search,
         'no_redirect': '1',
         'no_html': html,
         'd': meanings,
@@ -54,6 +52,7 @@ def query(qstr, safesearch=True, html=False, meanings=True, **kwargs):
 
     req = request.urlopen(url)
     json = j.loads(req.read())
+    print(json)
 
     return Results(json)
 
@@ -68,13 +67,11 @@ class Results(object):
         )
 
         self.json = json
-        self.api_version = None  # compat
 
         self.heading = json.get('Heading', '')
 
-        self.results = [Result(elem) for elem in json.get('Results',[])]
-        self.related = [Result(elem) for elem in
-                        json.get('RelatedTopics', [])]
+        self.results = [Result(elem) for elem in json.get('Results', [])]
+        self.related = [Result(elem) for elem in json.get('RelatedTopics', [])]
 
         self.abstract = Abstract(json)
         self.redirect = Redirect(json)
