@@ -9,8 +9,10 @@
 # the original source.
 
 from urllib import request, parse
-import json as j
+import json
 import sys
+
+from marshmallow import Schema, fields
 
 
 def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
@@ -29,7 +31,7 @@ def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
 
     Keword arguments:
     useragent: UserAgent to use while querying. Default: "python-duckduckgo %d" (str)
-    safesearch: True for on, False for off. Default: True (bool)
+    safe_search: True for on, False for off. Default: True (bool)
     html: True to allow HTML in output. Default: False (bool)
     meanings: True to include disambiguations in results (bool)
     Any other keyword arguments are passed directly to DuckDuckGo as URL params.
@@ -47,93 +49,67 @@ def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
         'd': meanings,
         }
     params.update(kwargs)
-    encparams = parse.urlencode(params)
-    url = 'https://api.duckduckgo.com/?' + encparams
 
-    req = request.urlopen(url)
-    json = j.loads(req.read())
-    print(json)
+    url = 'https://api.duckduckgo.com/?' + parse.urlencode(params)
+    response = request.urlopen(url)
 
-    return Results(json)
+    schema = Results()
+    data = response.read()
+    print(json.loads(data))
+    obj = schema.loads(data)
+    print(obj)
 
-
-class Results(object):
-
-    def __init__(self, json):
-        self.type = {'A': 'answer', 'D': 'disambiguation',
-                     'C': 'category', 'N': 'name',
-                     'E': 'exclusive', '': 'nothing'}.get(
-            json.get('Type', ''), ''
-        )
-
-        self.json = json
-
-        self.heading = json.get('Heading', '')
-
-        self.results = [Result(elem) for elem in json.get('Results', [])]
-        self.related = [Result(elem) for elem in json.get('RelatedTopics', [])]
-
-        self.abstract = Abstract(json)
-        self.redirect = Redirect(json)
-        self.definition = Definition(json)
-        self.answer = Answer(json)
-
-        self.image = Image({'Result': json.get('Image', '')})
+    return obj
 
 
-class Abstract(object):
-
-    def __init__(self, json):
-        self.html = json.get('Abstract', '')
-        self.text = json.get('AbstractText', '')
-        self.url = json.get('AbstractURL', '')
-        self.source = json.get('AbstractSource')
+class Abstract(Schema):
+    html = fields.Str(attribute='Abstract')
+    text = fields.Str(attribute='AbstractText')
+    url = fields.Url(attribute='AbstractURL')
+    source = fields.Str(attribute='AbstractSource')
 
 
-class Redirect(object):
-
-    def __init__(self, json):
-        self.url = json.get('Redirect', '')
+class Redirect(Schema):
+    url = fields.Url(attribute='Redirect')
 
 
-class Result(object):
-
-    def __init__(self, json):
-        self.topics = json.get('Topics', [])
-        if self.topics:
-            self.topics = [Result(t) for t in self.topics]
-            return
-        self.html = json.get('Result')
-        self.text = json.get('Text')
-        self.url = json.get('FirstURL')
-
-        icon_json = json.get('Icon')
-        if icon_json is not None:
-            self.icon = Image(icon_json)
-        else:
-            self.icon = None
+class Image(Schema):
+    url = fields.Url(attribute='Result')
+    height = fields.Int(attribute='Height')
+    width = fields.Int(attribute='Width')
 
 
-class Image(object):
+class Result(Schema):
+    topics = fields.List(fields.Str(), attribute='Topics')
+    html = fields.Str(attribute='Result')
+    text = fields.Str(attribute='Text')
+    url = fields.Url(attribute='FirstURL')
+    icon = fields.Nested(Image, attribute='Image')
 
-    def __init__(self, json):
-        self.url = json.get('Result')
-        self.height = json.get('Height', None)
-        self.width = json.get('Width', None)
 
-
-class Answer(object):
-
-    def __init__(self, json):
-        self.text = json.get('Answer')
-        self.type = json.get('AnswerType', '')
+class Answer(Schema):
+    text = fields.Str(attribute='Answer')
+    kind = fields.Str(attribute='AnswerType')
 
 
 class Definition(object):
-    def __init__(self, json):
-        self.text = json.get('Definition','')
-        self.url = json.get('DefinitionURL')
-        self.source = json.get('DefinitionSource')
+    text = fields.Str(attribute='Definition')
+    url = fields.Url(attribute='DefinitionURL')
+    source = fields.Str(attribute='DefinitionSource')
+
+
+class Results(Schema):
+    # {'A': 'answer', 'D': 'disambiguation',
+    #  'C': 'category', 'N': 'name',
+    #  'E': 'exclusive', '': 'nothing'}
+    kind = fields.Str(attribute='Type')
+    heading = fields.Str(attribute='Heading')
+    results = fields.Nested(Result, attribute='Results', many=True)
+    related = fields.Nested(Result, attribute='RelatedTopics', many=True)
+    abstract = fields.Nested(Abstract)
+    definition = fields.Nested(Definition)
+    answer = fields.Nested(Answer)
+    image = fields.Nested(Image)
 
 
 def get_zci(q, web_fallback=True, priority=('answer', 'definition', 'abstract', 'related.0'), urls=True, **kwargs):
