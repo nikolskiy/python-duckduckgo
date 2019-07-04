@@ -8,11 +8,13 @@
 # It was heavily modified with changes not compatible with
 # the original source.
 
+from typing import List
 from urllib import request, parse
-import json
 import sys
 
-from marshmallow import Schema, fields
+from dataclasses import dataclass
+from marshmallow import Schema, fields, post_load
+from pprint import pprint
 
 
 def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
@@ -30,7 +32,6 @@ def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
     'calc'
 
     Keword arguments:
-    useragent: UserAgent to use while querying. Default: "python-duckduckgo %d" (str)
     safe_search: True for on, False for off. Default: True (bool)
     html: True to allow HTML in output. Default: False (bool)
     meanings: True to include disambiguations in results (bool)
@@ -53,63 +54,135 @@ def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
     url = 'https://api.duckduckgo.com/?' + parse.urlencode(params)
     response = request.urlopen(url)
 
-    schema = Results()
     data = response.read()
-    print(json.loads(data))
-    obj = schema.loads(data)
-    print(obj)
+    #pprint(json.loads(data))
+
+    schema = ResponseSchema()
+    obj = schema.loads(data, partial=True)
 
     return obj
 
 
-class Abstract(Schema):
-    html = fields.Str(attribute='Abstract')
-    text = fields.Str(attribute='AbstractText')
-    url = fields.Url(attribute='AbstractURL')
-    source = fields.Str(attribute='AbstractSource')
+@dataclass
+class Answer:
+    text: str
+    kind: str
 
 
-class Redirect(Schema):
-    url = fields.Url(attribute='Redirect')
+@dataclass
+class Definition:
+    text: str
+    url: str
+    source: str
 
 
-class Image(Schema):
-    url = fields.Url(attribute='Result')
-    height = fields.Int(attribute='Height')
-    width = fields.Int(attribute='Width')
+@dataclass
+class Abstract:
+    html: str
+    text: str
+    url: str
+    source: str
 
 
-class Result(Schema):
-    topics = fields.List(fields.Str(), attribute='Topics')
-    html = fields.Str(attribute='Result')
-    text = fields.Str(attribute='Text')
-    url = fields.Url(attribute='FirstURL')
-    icon = fields.Nested(Image, attribute='Image')
+@dataclass
+class Image:
+    url: str
+    height: int
+    width: int
 
 
-class Answer(Schema):
-    text = fields.Str(attribute='Answer')
-    kind = fields.Str(attribute='AnswerType')
+@dataclass
+class Topic:
+    url: str
+    result: str
+    text: str
+    icon: str
 
 
-class Definition(object):
-    text = fields.Str(attribute='Definition')
-    url = fields.Url(attribute='DefinitionURL')
-    source = fields.Str(attribute='DefinitionSource')
+@dataclass
+class Result:
+    topics: List[Topic]
+    html: str
+    text: str
+    url: str
+    icon: str
 
 
-class Results(Schema):
-    # {'A': 'answer', 'D': 'disambiguation',
-    #  'C': 'category', 'N': 'name',
-    #  'E': 'exclusive', '': 'nothing'}
-    kind = fields.Str(attribute='Type')
-    heading = fields.Str(attribute='Heading')
-    results = fields.Nested(Result, attribute='Results', many=True)
-    related = fields.Nested(Result, attribute='RelatedTopics', many=True)
-    abstract = fields.Nested(Abstract)
-    definition = fields.Nested(Definition)
-    answer = fields.Nested(Answer)
-    image = fields.Nested(Image)
+@dataclass
+class Response:
+    kind: str
+    heading: str
+    results: List[Result]
+    related_topics: List[Topic]
+    abstract: Abstract
+    redirect: str
+    definition: Definition
+    answer: Answer
+    image: Image
+
+
+class SizeInteger(fields.Integer):
+    """
+    Modification of Int field that accepts empty strings
+    and sets them to default value.
+    """
+    def __init__(self, *, empty_default=0, **kwargs):
+        self.empty_default = empty_default
+        super().__init__(**kwargs)
+
+    def _format_num(self, value):
+        if not value:
+            value = self.empty_default
+        return super()._format_num(value)
+
+
+class IconSchema(Schema):
+    height = SizeInteger(data_key='Height')
+    url = fields.Str(data_key='URL')
+    width = SizeInteger(data_key='Width')
+
+
+class TopicSchema(Schema):
+    url = fields.Str(data_key='FirstURL')
+    text = fields.Str(data_key='Text')
+    result = fields.Str(data_key='Result')
+    icon = fields.Nested(IconSchema, data_key='Icon')
+
+
+class ResponseSchema(Schema):
+    abstract = fields.Str(data_key='Abstract')
+    abstract_source = fields.Str(data_key='AbstractSource')
+    abstract_text = fields.Str(data_key='AbstractText')
+    abstract_url = fields.Str(data_key='AbstractURL')
+    answer = fields.Str(data_key='Answer')
+    answer_type = fields.Str(data_key='AnswerType')
+    definition = fields.Str(data_key='Definition')
+    definition_source = fields.Str(data_key='DefinitionSource')
+    definition_url = fields.Str(data_key='DefinitionURL')
+    entity = fields.Str(data_key='Entity')
+    heading = fields.Str(data_key='Heading')
+    image = fields.Str(data_key='Image')
+    image_height = fields.Int(data_key='ImageHeight')
+    image_is_logo = fields.Bool(data_key='ImageIsLogo')
+    image_width = fields.Int(data_key='ImageWidth')
+    infobox = fields.Dict(data_key='Infobox')
+    redirect = fields.Str(data_key='Redirect')
+    related_topics = fields.Nested(TopicSchema, data_key='RelatedTopics', many=True)
+    results = fields.Nested(TopicSchema, data_key='Results', many=True)
+    kind = fields.Str(data_key='Type')
+    meta = fields.Dict(data_key='meta')
+
+    @post_load
+    def make_response_class(self, data):
+        abstract = Abstract(
+            html=data['abstract'], text=data['abstract_text'],
+            url=data['abstract_url'], source=data['abstract_source']
+        )
+        answer = Answer(text=data['answer'], kind=data['answer_type'])
+        kind = {'A': 'answer', 'D': 'disambiguation', 'C': 'category', 'N': 'name',
+                'E': 'exclusive', '': 'nothing'}[data['kind']]
+        results = [Result(i[])]
+
 
 
 def get_zci(q, web_fallback=True, priority=('answer', 'definition', 'abstract', 'related.0'), urls=True, **kwargs):
@@ -179,7 +252,7 @@ def show_all(qstr):
 
 def answer(qstr):
     response = get_zci(qstr)
-    print(response)
+    #print(response)
 
 
 def main():
