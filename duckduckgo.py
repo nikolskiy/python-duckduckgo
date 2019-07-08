@@ -8,27 +8,17 @@
 # It was heavily modified with changes not compatible with
 # the original source.
 
-from typing import List
+from typing import List, Dict
 from urllib import request, parse
 import sys
 
 from dataclasses import dataclass
-from marshmallow import Schema, fields, post_load
+from marshmallow import Schema, fields, post_load, EXCLUDE
 
 
 def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
     """
     Query DuckDuckGo, returning a Results object.
-
-    Here's a query that's unlikely to change:
-
-    >>> result = query('1 + 1')
-    >>> result.type
-    'nothing'
-    >>> result.answer.text
-    '1 + 1 = 2'
-    >>> result.answer.type
-    'calc'
 
     Keword arguments:
     safe_search: True for on, False for off. Default: True (bool)
@@ -87,7 +77,6 @@ class Image:
     url: str
     height: int
     width: int
-    is_logo: bool
 
 
 @dataclass
@@ -116,6 +105,21 @@ class Response:
     definition: Definition
     answer: Answer
     image: Image
+    data_dict: Dict
+    priority = ['answer', 'definition', 'abstract', 'related_topics', 'redirect']
+
+    @property
+    def zci(self):
+        for field in self.priority:
+            result = getattr(self, field, None)
+            # pick first item if the result is a list
+            if isinstance(result, list):
+                result = result[0]
+            result = result.text
+            if result:
+                return result
+
+        return 'Sorry, I have nothing to report here.'
 
 
 class SizeInteger(fields.Integer):
@@ -134,12 +138,18 @@ class SizeInteger(fields.Integer):
 
 
 class IconSchema(Schema):
+    class Meta:
+        unknown = EXCLUDE
+
     url = fields.Str(data_key='URL')
     height = SizeInteger(data_key='Height')
     width = SizeInteger(data_key='Width')
 
 
 class TopicSchema(Schema):
+    class Meta:
+        unknown = EXCLUDE
+
     html = fields.Str(data_key='Result')
     text = fields.Str(data_key='Text')
     icon = fields.Nested(IconSchema, data_key='Icon')
@@ -147,6 +157,9 @@ class TopicSchema(Schema):
 
 
 class ResponseSchema(Schema):
+    class Meta:
+        unknown = EXCLUDE
+
     abstract = fields.Str(data_key='Abstract')
     abstract_source = fields.Str(data_key='AbstractSource')
     abstract_text = fields.Str(data_key='AbstractText')
@@ -159,15 +172,12 @@ class ResponseSchema(Schema):
     entity = fields.Str(data_key='Entity')
     heading = fields.Str(data_key='Heading')
     image = fields.Str(data_key='Image')
-    image_height = fields.Int(data_key='ImageHeight')
-    image_is_logo = fields.Bool(data_key='ImageIsLogo')
-    image_width = fields.Int(data_key='ImageWidth')
-    infobox = fields.Dict(data_key='Infobox')
+    image_height = SizeInteger(data_key='ImageHeight')
+    image_width = SizeInteger(data_key='ImageWidth')
     redirect = fields.Str(data_key='Redirect')
     related_topics = fields.Nested(TopicSchema, data_key='RelatedTopics', many=True)
     results = fields.Nested(TopicSchema, data_key='Results', many=True)
     kind = fields.Str(data_key='Type')
-    meta = fields.Dict(data_key='meta')
 
     @post_load
     def make_response_class(self, data, **kwargs):
@@ -182,7 +192,7 @@ class ResponseSchema(Schema):
         )
         image = Image(
             url=data['image'], width=data['image_width'],
-            height=data['image_height'], is_logo=data['image_is_logo']
+            height=data['image_height']
         )
         results = [
             Topic(html=i['html'], text=i['text'], icon=Icon(**i['icon']), url=i['url'])
@@ -192,91 +202,22 @@ class ResponseSchema(Schema):
             Topic(html=i['html'], text=i['text'], icon=Icon(**i['icon']), url=i['url'])
             for i in data['related_topics']
         ]
-        # return data
         return Response(
             kind=kind, heading=data['heading'], results=results, related_topics=related_topics,
             abstract=abstract, redirect=data['redirect'], definition=definition,
             answer=Answer(text=data['answer'], kind=data['answer_type']),
-            image=image
+            image=image, data_dict=data
         )
-
-
-def get_zci(q, web_fallback=True, priority=('answer', 'definition', 'abstract', 'related.0'), urls=True, **kwargs):
-    """
-    A helper method to get a single (and hopefully the best) ZCI result.
-    priority=list can be used to set the order in which fields will be checked for answers.
-    Use web_fallback=True to fall back to grabbing the first web result.
-    passed to query. This method will fall back to 'Sorry, no results.'
-    if it cannot find anything.
-
-    :param q:
-    :param web_fallback:
-    :param priority:
-    :param urls:
-    :param kwargs:
-    :return:
-    """
-
-    ddg = query('\\'+q, **kwargs)
-    response = ''
-
-    for p in priority:
-        ps = p.split('.')
-        type = ps[0]
-        index = int(ps[1]) if len(ps) > 1 else None
-
-        result = getattr(ddg, type)
-        if index is not None: 
-            if not hasattr(result, '__getitem__'):
-                raise TypeError('%s field is not indexable' % type)
-
-            result = result[index] if len(result) > index else None
-        if not result:
-            continue
-
-        if result.text:
-            response = result.text
-        if result.text and hasattr(result, 'url') and urls:
-            if result.url:
-                response += ' (%s)' % result.url
-        if response:
-            break
-
-    # if there still isn't anything, try to get the first web result
-    if not response and web_fallback:
-        if ddg.redirect.url:
-            response = ddg.redirect.url
-
-    # final fallback
-    if not response: 
-        response = 'Sorry, no results.'
-
-    return response
-
-
-def show_all(qstr):
-    q = query(qstr)
-    for key in sorted(q.json.keys()):
-        sys.stdout.write(key)
-        if type(q.json[key]) in [str, int]:
-            print(':', q.json[key])
-        else:
-            sys.stdout.write('\n')
-            for i in q.json[key]:
-                print('\t', i)
-
-
-def answer(qstr):
-    response = get_zci(qstr)
-    #print(response)
 
 
 def main():
     if len(sys.argv) > 1:
-        answer(' '.join(sys.argv[1:]))
+        res = query(' '.join(sys.argv[1:]))
     else:
-        print('Usage: %s [query]' % sys.argv[0])
+        res = 'Usage: %s [query]' % sys.argv[0]
+    print(res)
 
 
 if __name__ == '__main__':
     main()
+
