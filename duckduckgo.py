@@ -13,42 +13,7 @@ from urllib import request, parse
 import sys
 
 from dataclasses import dataclass
-from marshmallow import Schema, fields, post_load, EXCLUDE
-
-
-def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
-    """
-    Query DuckDuckGo, returning a Results object.
-
-    Keword arguments:
-    safe_search: True for on, False for off. Default: True (bool)
-    html: True to allow HTML in output. Default: False (bool)
-    meanings: True to include disambiguations in results (bool)
-    Any other keyword arguments are passed directly to DuckDuckGo as URL params.
-    """
-
-    safe_search = '1' if safe_search else '-1'
-    html = '0' if html else '1'
-    meanings = '0' if meanings else '1'
-    params = {
-        'q': qstr,
-        'o': 'json',
-        'kp': safe_search,
-        'no_redirect': '1',
-        'no_html': html,
-        'd': meanings,
-        }
-    params.update(kwargs)
-
-    url = 'https://api.duckduckgo.com/?' + parse.urlencode(params)
-    response = request.urlopen(url)
-
-    data = response.read()
-
-    schema = ResponseSchema()
-    obj = schema.loads(data, partial=True)
-
-    return obj
+from marshmallow import Schema, fields, post_load, pre_load, EXCLUDE
 
 
 @dataclass
@@ -95,13 +60,18 @@ class Topic:
 
 
 @dataclass
+class Redirect:
+    text: str
+
+
+@dataclass
 class Response:
     kind: str
     heading: str
     results: List[Topic]
     related_topics: List[Topic]
     abstract: Abstract
-    redirect: str
+    redirect: Redirect
     definition: Definition
     answer: Answer
     image: Image
@@ -114,6 +84,8 @@ class Response:
             result = getattr(self, field, None)
             # pick first item if the result is a list
             if isinstance(result, list):
+                if not result:
+                    continue
                 result = result[0]
             result = result.text
             if result:
@@ -138,18 +110,12 @@ class SizeInteger(fields.Integer):
 
 
 class IconSchema(Schema):
-    class Meta:
-        unknown = EXCLUDE
-
     url = fields.Str(data_key='URL')
     height = SizeInteger(data_key='Height')
     width = SizeInteger(data_key='Width')
 
 
 class TopicSchema(Schema):
-    class Meta:
-        unknown = EXCLUDE
-
     html = fields.Str(data_key='Result')
     text = fields.Str(data_key='Text')
     icon = fields.Nested(IconSchema, data_key='Icon')
@@ -187,6 +153,8 @@ class ResponseSchema(Schema):
         )
         kind = {'A': 'answer', 'D': 'disambiguation', 'C': 'category', 'N': 'name',
                 'E': 'exclusive', '': 'nothing'}[data['kind']]
+        if data['answer_type']:
+            kind = data['answer_type']
         definition = Definition(
             text=data['definition'], url=data['definition_url'], source=data['definition_source']
         )
@@ -204,10 +172,60 @@ class ResponseSchema(Schema):
         ]
         return Response(
             kind=kind, heading=data['heading'], results=results, related_topics=related_topics,
-            abstract=abstract, redirect=data['redirect'], definition=definition,
+            abstract=abstract, redirect=Redirect(text=data['redirect']), definition=definition,
             answer=Answer(text=data['answer'], kind=data['answer_type']),
             image=image, data_dict=data
         )
+
+    @pre_load
+    def pre_process(self, data, **kwargs):
+        return self.fix_schema(data, 'RelatedTopics')
+
+    def fix_schema(self, data, key):
+        """
+        Some responses are wrapped into topics in the following form
+        'name': 'Places',
+        'Topics': [{}, {}, ...]
+        Topics here are in the standard form 'Result', 'Text', etc.
+        This function will make the structure flat and throw away
+        topic name since it doesn't show up for all results.
+        """
+        new_topics = []
+        for item in data[key]:
+            if 'Topics' in item:
+                new_topics += item['Topics']
+            else:
+                new_topics.append(item)
+
+        data[key] = new_topics
+        return data
+
+
+def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
+    """
+    Query DuckDuckGo, returning a Results object.
+
+    Keword arguments:
+    safe_search: True for on, False for off. Default: True (bool)
+    html: True to allow HTML in output. Default: False (bool)
+    meanings: True to include disambiguations in results (bool)
+    Any other keyword arguments are passed directly to DuckDuckGo as URL params.
+    """
+    params = {
+        'q': qstr,
+        'o': 'json',
+        'kp': '1' if safe_search else '-1',
+        'no_redirect': '1',
+        'no_html': '0' if html else '1',
+        'd': '0' if meanings else '1',
+    }
+    params.update(kwargs)
+
+    url = 'https://api.duckduckgo.com/?' + parse.urlencode(params)
+    with request.urlopen(url) as response:
+        obj = ResponseSchema().loads(response.read())
+
+    return obj
 
 
 def main():
