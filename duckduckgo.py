@@ -231,9 +231,12 @@ def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
 def main():
     if len(sys.argv) > 1:
         res = query(' '.join(sys.argv[1:]))
+        print()
+        print(res.zci)
+        print()
     else:
         res = 'Usage: %s [query]' % sys.argv[0]
-    print(res)
+        print(res)
 
 
 if __name__ == '__main__':
