@@ -2,3 +2,7 @@
 .idea
 # cache
 __pycache__
+# build dirs
+build
+dist
+*.egg-info

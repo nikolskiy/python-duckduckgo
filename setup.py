@@ -25,7 +25,7 @@ setup(
     url='http://github.com/nikolskiy/python-duckduckgo/',
     long_description=long_description,
     platforms=['any'],
-    install_requires=['marshmallow>=3.0'],
+    install_requires=['marshmallow>=3.0.0rc7'],
     keywords='duckduckgo quick answer',
     classifiers=[
         "Development Status :: Alpha",
