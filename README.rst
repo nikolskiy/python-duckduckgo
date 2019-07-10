@@ -30,7 +30,7 @@ Print your IP address according to DuckDuckGo:
 Ask DuckDuckGo to check your spelling:
     ``ddg how to spell missisipy``
 
-``ddg`` command is a wrapper for ``query('command line args')`` and ``response.zci`` calls so
+``ddg`` command is a wrapper around ``query('command line args')`` and ``response.zci`` calls so
 all the queries described in the section below should still work
 
 Query Usage
@@ -82,12 +82,18 @@ Credits
 =======
 
 Copyright (c) 2010 Michael Stephens <me@mikej.st>
+
 Copyright (c) 2012-2013 Michael Smith <crazedpsyc@gshellz.org>
+
 Copyright (c) 2019 Denis Nikolskiy
+
 
 Released under a 3-clause BSD license, see LICENSE for details.
 
+
 Latest: https://github.com/nikolskiy/python-duckduckgo
+
 Previous: http://github.com/crazedpsyc/python-duckduckgo
+
 Original: http://github.com/mikejs/python-duckduckgo (outdated)
 
