@@ -1,24 +1,38 @@
 from setuptools import setup
-from duckduckgo import __version__
+import sys
 
-long_description = open('README.rst').read()
 
-setup(name='duckduckgo2',
-      version=__version__,
-      py_modules=['duckduckgo'],
-      description='Library for querying the DuckDuckGo API',
-      author='Michael Smith',
-      author_email='crazedpsyc@duckduckgo.com',
-      license='BSD',
-      url='http://github.com/crazedpsyc/python-duckduckgo/',
-      long_description=long_description,
-      platforms=['any'],
-      classifiers=["Development Status :: 4 - Beta",
-                   "Intended Audience :: Developers",
-                   "License :: OSI Approved :: BSD License",
-                   "Operating System :: OS Independent",
-                   "Programming Language :: Python",
-                   "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
-                   ],
-      entry_points={'console_scripts':['ddg = duckduckgo:main']},
-      )
+MIN_PYTHON = (3, 7)
+if sys.version_info < MIN_PYTHON:
+    sys.exit("Python %s.%s or later is required.\n" % MIN_PYTHON)
+
+
+with open("README.rst", "r") as fh:
+    long_description = fh.read()
+
+
+VERSION = '0.0.1'
+
+
+setup(
+    python_requires='>=3.7',
+    name='duckduckgoapi',
+    version=VERSION,
+    py_modules=['duckduckgo'],
+    description='Library for querying the DuckDuckGo API',
+    author='Denis Nikolskiy',
+    license='BSD',
+    url='http://github.com/nikolskiy/python-duckduckgo/',
+    long_description=long_description,
+    platforms=['any'],
+    install_requires=['marshmallow>=3.0.0rc7'],
+    keywords='duckduckgo quick answer',
+    classifiers=[
+        "Development Status :: Alpha",
+        "Intended Audience :: Developers",
+        "License :: OSI Approved :: BSD License",
+        "Operating System :: OS Independent",
+        "Programming Language :: Python :: 3",
+        "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    ],
+    entry_points={'console_scripts': ['ddg = duckduckgo:main']},)

@@ -8,210 +8,237 @@
 # It was heavily modified with changes not compatible with
 # the original source.
 
+from typing import List, Dict
 from urllib import request, parse
-import json as j
 import sys
+
+from dataclasses import dataclass
+from marshmallow import Schema, fields, post_load, pre_load, EXCLUDE
+
+
+@dataclass
+class Answer:
+    text: str
+    kind: str
+
+
+@dataclass
+class Definition:
+    text: str
+    url: str
+    source: str
+
+
+@dataclass
+class Abstract:
+    html: str
+    text: str
+    url: str
+    source: str
+
+
+@dataclass
+class Image:
+    url: str
+    height: int
+    width: int
+
+
+@dataclass
+class Icon:
+    url: str
+    height: int
+    width: int
+
+
+@dataclass
+class Topic:
+    html: str
+    text: str
+    icon: Icon
+    url: str
+
+
+@dataclass
+class Redirect:
+    text: str
+
+
+@dataclass
+class Response:
+    kind: str
+    heading: str
+    results: List[Topic]
+    related_topics: List[Topic]
+    abstract: Abstract
+    redirect: Redirect
+    definition: Definition
+    answer: Answer
+    image: Image
+    data_dict: Dict
+    priority = ['answer', 'definition', 'abstract', 'related_topics', 'redirect']
+
+    @property
+    def zci(self):
+        for field in self.priority:
+            result = getattr(self, field, None)
+            # pick first item if the result is a list
+            if isinstance(result, list):
+                if not result:
+                    continue
+                result = result[0]
+            result = result.text
+            if result:
+                return result
+
+        return 'Sorry, I have nothing to report here.'
+
+
+class SizeInteger(fields.Integer):
+    """
+    Modification of Int field that accepts empty strings
+    and sets them to default value.
+    """
+    def __init__(self, *, empty_default=0, **kwargs):
+        self.empty_default = empty_default
+        super().__init__(**kwargs)
+
+    def _format_num(self, value):
+        if not value:
+            value = self.empty_default
+        return super()._format_num(value)
+
+
+class IconSchema(Schema):
+    url = fields.Str(data_key='URL')
+    height = SizeInteger(data_key='Height')
+    width = SizeInteger(data_key='Width')
+
+
+class TopicSchema(Schema):
+    html = fields.Str(data_key='Result')
+    text = fields.Str(data_key='Text')
+    icon = fields.Nested(IconSchema, data_key='Icon')
+    url = fields.Str(data_key='FirstURL')
+
+
+class ResponseSchema(Schema):
+    class Meta:
+        unknown = EXCLUDE
+
+    abstract = fields.Str(data_key='Abstract')
+    abstract_source = fields.Str(data_key='AbstractSource')
+    abstract_text = fields.Str(data_key='AbstractText')
+    abstract_url = fields.Str(data_key='AbstractURL')
+    answer = fields.Str(data_key='Answer')
+    answer_type = fields.Str(data_key='AnswerType')
+    definition = fields.Str(data_key='Definition')
+    definition_source = fields.Str(data_key='DefinitionSource')
+    definition_url = fields.Str(data_key='DefinitionURL')
+    entity = fields.Str(data_key='Entity')
+    heading = fields.Str(data_key='Heading')
+    image = fields.Str(data_key='Image')
+    image_height = SizeInteger(data_key='ImageHeight')
+    image_width = SizeInteger(data_key='ImageWidth')
+    redirect = fields.Str(data_key='Redirect')
+    related_topics = fields.Nested(TopicSchema, data_key='RelatedTopics', many=True)
+    results = fields.Nested(TopicSchema, data_key='Results', many=True)
+    kind = fields.Str(data_key='Type')
+
+    @post_load
+    def make_response_class(self, data, **kwargs):
+        abstract = Abstract(
+            html=data['abstract'], text=data['abstract_text'],
+            url=data['abstract_url'], source=data['abstract_source']
+        )
+        kind = {'A': 'answer', 'D': 'disambiguation', 'C': 'category', 'N': 'name',
+                'E': 'exclusive', '': 'nothing'}[data['kind']]
+        if data['answer_type']:
+            kind = data['answer_type']
+        definition = Definition(
+            text=data['definition'], url=data['definition_url'], source=data['definition_source']
+        )
+        image = Image(
+            url=data['image'], width=data['image_width'],
+            height=data['image_height']
+        )
+        results = [
+            Topic(html=i['html'], text=i['text'], icon=Icon(**i['icon']), url=i['url'])
+            for i in data['results']
+        ]
+        related_topics = [
+            Topic(html=i['html'], text=i['text'], icon=Icon(**i['icon']), url=i['url'])
+            for i in data['related_topics']
+        ]
+        return Response(
+            kind=kind, heading=data['heading'], results=results, related_topics=related_topics,
+            abstract=abstract, redirect=Redirect(text=data['redirect']), definition=definition,
+            answer=Answer(text=data['answer'], kind=data['answer_type']),
+            image=image, data_dict=data
+        )
+
+    @pre_load
+    def pre_process(self, data, **kwargs):
+        return self.fix_schema(data, 'RelatedTopics')
+
+    def fix_schema(self, data, key):
+        """
+        Some responses are wrapped into topics in the following form
+        'name': 'Places',
+        'Topics': [{}, {}, ...]
+        Topics here are in the standard form 'Result', 'Text', etc.
+        This function will make the structure flat and throw away
+        topic name since it doesn't show up for all results.
+        """
+        new_topics = []
+        for item in data[key]:
+            if 'Topics' in item:
+                new_topics += item['Topics']
+            else:
+                new_topics.append(item)
+
+        data[key] = new_topics
+        return data
 
 
 def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
     """
     Query DuckDuckGo, returning a Results object.
 
-    Here's a query that's unlikely to change:
-
-    >>> result = query('1 + 1')
-    >>> result.type
-    'nothing'
-    >>> result.answer.text
-    '1 + 1 = 2'
-    >>> result.answer.type
-    'calc'
-
     Keword arguments:
-    useragent: UserAgent to use while querying. Default: "python-duckduckgo %d" (str)
-    safesearch: True for on, False for off. Default: True (bool)
+    safe_search: True for on, False for off. Default: True (bool)
     html: True to allow HTML in output. Default: False (bool)
     meanings: True to include disambiguations in results (bool)
     Any other keyword arguments are passed directly to DuckDuckGo as URL params.
     """
-
-    safe_search = '1' if safe_search else '-1'
-    html = '0' if html else '1'
-    meanings = '0' if meanings else '1'
     params = {
         'q': qstr,
         'o': 'json',
-        'kp': safe_search,
+        'kp': '1' if safe_search else '-1',
         'no_redirect': '1',
-        'no_html': html,
-        'd': meanings,
-        }
+        'no_html': '0' if html else '1',
+        'd': '0' if meanings else '1',
+    }
     params.update(kwargs)
-    encparams = parse.urlencode(params)
-    url = 'https://api.duckduckgo.com/?' + encparams
 
-    req = request.urlopen(url)
-    json = j.loads(req.read())
-    print(json)
+    url = 'https://api.duckduckgo.com/?' + parse.urlencode(params)
+    with request.urlopen(url) as response:
+        obj = ResponseSchema().loads(response.read())
 
-    return Results(json)
-
-
-class Results(object):
-
-    def __init__(self, json):
-        self.type = {'A': 'answer', 'D': 'disambiguation',
-                     'C': 'category', 'N': 'name',
-                     'E': 'exclusive', '': 'nothing'}.get(
-            json.get('Type', ''), ''
-        )
-
-        self.json = json
-
-        self.heading = json.get('Heading', '')
-
-        self.results = [Result(elem) for elem in json.get('Results', [])]
-        self.related = [Result(elem) for elem in json.get('RelatedTopics', [])]
-
-        self.abstract = Abstract(json)
-        self.redirect = Redirect(json)
-        self.definition = Definition(json)
-        self.answer = Answer(json)
-
-        self.image = Image({'Result': json.get('Image', '')})
-
-
-class Abstract(object):
-
-    def __init__(self, json):
-        self.html = json.get('Abstract', '')
-        self.text = json.get('AbstractText', '')
-        self.url = json.get('AbstractURL', '')
-        self.source = json.get('AbstractSource')
-
-
-class Redirect(object):
-
-    def __init__(self, json):
-        self.url = json.get('Redirect', '')
-
-
-class Result(object):
-
-    def __init__(self, json):
-        self.topics = json.get('Topics', [])
-        if self.topics:
-            self.topics = [Result(t) for t in self.topics]
-            return
-        self.html = json.get('Result')
-        self.text = json.get('Text')
-        self.url = json.get('FirstURL')
-
-        icon_json = json.get('Icon')
-        if icon_json is not None:
-            self.icon = Image(icon_json)
-        else:
-            self.icon = None
-
-
-class Image(object):
-
-    def __init__(self, json):
-        self.url = json.get('Result')
-        self.height = json.get('Height', None)
-        self.width = json.get('Width', None)
-
-
-class Answer(object):
-
-    def __init__(self, json):
-        self.text = json.get('Answer')
-        self.type = json.get('AnswerType', '')
-
-
-class Definition(object):
-    def __init__(self, json):
-        self.text = json.get('Definition','')
-        self.url = json.get('DefinitionURL')
-        self.source = json.get('DefinitionSource')
-
-
-def get_zci(q, web_fallback=True, priority=('answer', 'definition', 'abstract', 'related.0'), urls=True, **kwargs):
-    """
-    A helper method to get a single (and hopefully the best) ZCI result.
-    priority=list can be used to set the order in which fields will be checked for answers.
-    Use web_fallback=True to fall back to grabbing the first web result.
-    passed to query. This method will fall back to 'Sorry, no results.'
-    if it cannot find anything.
-
-    :param q:
-    :param web_fallback:
-    :param priority:
-    :param urls:
-    :param kwargs:
-    :return:
-    """
-
-    ddg = query('\\'+q, **kwargs)
-    response = ''
-
-    for p in priority:
-        ps = p.split('.')
-        type = ps[0]
-        index = int(ps[1]) if len(ps) > 1 else None
-
-        result = getattr(ddg, type)
-        if index is not None: 
-            if not hasattr(result, '__getitem__'):
-                raise TypeError('%s field is not indexable' % type)
-
-            result = result[index] if len(result) > index else None
-        if not result:
-            continue
-
-        if result.text:
-            response = result.text
-        if result.text and hasattr(result, 'url') and urls:
-            if result.url:
-                response += ' (%s)' % result.url
-        if response:
-            break
-
-    # if there still isn't anything, try to get the first web result
-    if not response and web_fallback:
-        if ddg.redirect.url:
-            response = ddg.redirect.url
-
-    # final fallback
-    if not response: 
-        response = 'Sorry, no results.'
-
-    return response
-
-
-def show_all(qstr):
-    q = query(qstr)
-    for key in sorted(q.json.keys()):
-        sys.stdout.write(key)
-        if type(q.json[key]) in [str, int]:
-            print(':', q.json[key])
-        else:
-            sys.stdout.write('\n')
-            for i in q.json[key]:
-                print('\t', i)
-
-
-def answer(qstr):
-    response = get_zci(qstr)
-    print(response)
+    return obj
 
 
 def main():
     if len(sys.argv) > 1:
-        answer(' '.join(sys.argv[1:]))
+        res = query(' '.join(sys.argv[1:]))
+        print()
+        print(res.zci)
+        print()
     else:
-        print('Usage: %s [query]' % sys.argv[0])
+        res = 'Usage: %s [query]' % sys.argv[0]
+        print(res)
 
 
 if __name__ == '__main__':
     main()
+
