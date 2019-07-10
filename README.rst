@@ -2,7 +2,7 @@
 python-duckduckgo
 ==================
 
-A Python library for querying the DuckDuckGo API.
+A Python library for querying the `DuckDuckGo Instant Answer API <https://duckduckgo.com/api>`_.
 
 This version has been forked from the original to work with Python 3.7 or later.
 It uses dataclasses and Marshmallow library to parse DuckDuckGo responses.
