@@ -10,6 +10,7 @@
 
 from typing import List, Dict
 from urllib import request, parse
+import webbrowser
 import sys
 
 from dataclasses import dataclass
@@ -77,6 +78,7 @@ class Response:
     image: Image
     data_dict: Dict
     priority = ['answer', 'definition', 'abstract', 'related_topics', 'redirect']
+    original_query: str = ''
 
     @property
     def zci(self):
@@ -146,7 +148,7 @@ class ResponseSchema(Schema):
     kind = fields.Str(data_key='Type')
 
     @post_load
-    def make_response_class(self, data, **kwargs):
+    def make_response_class(self, data, **kwargs) -> Response:
         abstract = Abstract(
             html=data['abstract'], text=data['abstract_text'],
             url=data['abstract_url'], source=data['abstract_source']
@@ -201,7 +203,7 @@ class ResponseSchema(Schema):
         return data
 
 
-def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
+def query(qstr, safe_search=True, html=False, meanings=True, **kwargs) -> Response:
     """
     Query DuckDuckGo, returning a Results object.
 
@@ -225,6 +227,8 @@ def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
     with request.urlopen(url) as response:
         obj = ResponseSchema().loads(response.read())
 
+    obj.original_query = qstr
+
     return obj
 
 
@@ -234,6 +238,10 @@ def main():
         print()
         print(res.zci)
         print()
+        url = 'https://duckduckgo.com/?q=' + res.original_query
+        see_more = input('Type any character to see more results or nothing to move on: ')
+        if see_more != '':
+            webbrowser.open(url)
     else:
         res = 'Usage: %s [query]' % sys.argv[0]
         print(res)
