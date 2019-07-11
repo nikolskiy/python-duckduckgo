@@ -22,6 +22,9 @@ If you already downloaded the source you can run:
 Here is how you can install it using pip from the git repo:
     ``pip install git+git://github.com/nikolskiy/python-duckduckgo.git``
 
+I recommend using ``virtualenv`` to install the package and just linking it to your executable path.
+For example: ``sudo ln -s -T /path/to/ddg/bin/ddg /usr/local/bin/ddg``
+
 Command Line Usage
 ==================
 Print your IP address according to DuckDuckGo:
@@ -29,6 +32,9 @@ Print your IP address according to DuckDuckGo:
 
 Ask DuckDuckGo to check your spelling:
     ``ddg how to spell missisipy``
+
+Generate 15 char password:
+    ``ddg password 15``
 
 ``ddg`` command is a wrapper around ``query('command line args')`` and ``response.zci`` calls so
 all the queries described in the section below should still work
