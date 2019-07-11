@@ -10,10 +10,11 @@
 
 from typing import List, Dict
 from urllib import request, parse
+import webbrowser
 import sys
 
 from dataclasses import dataclass
-from marshmallow import Schema, fields, post_load, pre_load, EXCLUDE
+from marshmallow import Schema, fields, pre_load, EXCLUDE
 
 
 @dataclass
@@ -77,6 +78,7 @@ class Response:
     image: Image
     data_dict: Dict
     priority = ['answer', 'definition', 'abstract', 'related_topics', 'redirect']
+    original_query: str = ''
 
     @property
     def zci(self):
@@ -145,43 +147,12 @@ class ResponseSchema(Schema):
     results = fields.Nested(TopicSchema, data_key='Results', many=True)
     kind = fields.Str(data_key='Type')
 
-    @post_load
-    def make_response_class(self, data, **kwargs):
-        abstract = Abstract(
-            html=data['abstract'], text=data['abstract_text'],
-            url=data['abstract_url'], source=data['abstract_source']
-        )
-        kind = {'A': 'answer', 'D': 'disambiguation', 'C': 'category', 'N': 'name',
-                'E': 'exclusive', '': 'nothing'}[data['kind']]
-        if data['answer_type']:
-            kind = data['answer_type']
-        definition = Definition(
-            text=data['definition'], url=data['definition_url'], source=data['definition_source']
-        )
-        image = Image(
-            url=data['image'], width=data['image_width'],
-            height=data['image_height']
-        )
-        results = [
-            Topic(html=i['html'], text=i['text'], icon=Icon(**i['icon']), url=i['url'])
-            for i in data['results']
-        ]
-        related_topics = [
-            Topic(html=i['html'], text=i['text'], icon=Icon(**i['icon']), url=i['url'])
-            for i in data['related_topics']
-        ]
-        return Response(
-            kind=kind, heading=data['heading'], results=results, related_topics=related_topics,
-            abstract=abstract, redirect=Redirect(text=data['redirect']), definition=definition,
-            answer=Answer(text=data['answer'], kind=data['answer_type']),
-            image=image, data_dict=data
-        )
-
     @pre_load
-    def pre_process(self, data, **kwargs):
+    def pre_process(self, data, **_):
         return self.fix_schema(data, 'RelatedTopics')
 
-    def fix_schema(self, data, key):
+    @staticmethod
+    def fix_schema(data, key):
         """
         Some responses are wrapped into topics in the following form
         'name': 'Places',
@@ -201,7 +172,39 @@ class ResponseSchema(Schema):
         return data
 
 
-def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
+def build_response_instance(data: Dict, qstr: str) -> Response:
+    abstract = Abstract(
+        html=data['abstract'], text=data['abstract_text'],
+        url=data['abstract_url'], source=data['abstract_source']
+    )
+    kind = {'A': 'answer', 'D': 'disambiguation', 'C': 'category', 'N': 'name',
+            'E': 'exclusive', '': 'nothing'}[data['kind']]
+    if data['answer_type']:
+        kind = data['answer_type']
+    definition = Definition(
+        text=data['definition'], url=data['definition_url'], source=data['definition_source']
+    )
+    image = Image(
+        url=data['image'], width=data['image_width'],
+        height=data['image_height']
+    )
+    results = [
+        Topic(html=i['html'], text=i['text'], icon=Icon(**i['icon']), url=i['url'])
+        for i in data['results']
+    ]
+    related_topics = [
+        Topic(html=i['html'], text=i['text'], icon=Icon(**i['icon']), url=i['url'])
+        for i in data['related_topics']
+    ]
+    return Response(
+        kind=kind, heading=data['heading'], results=results, related_topics=related_topics,
+        abstract=abstract, redirect=Redirect(text=data['redirect']), definition=definition,
+        answer=Answer(text=data['answer'], kind=data['answer_type']),
+        image=image, data_dict=data, original_query=qstr
+    )
+
+
+def query(qstr, safe_search=True, html=False, meanings=True, **kwargs) -> Response:
     """
     Query DuckDuckGo, returning a Results object.
 
@@ -223,9 +226,9 @@ def query(qstr, safe_search=True, html=False, meanings=True, **kwargs):
 
     url = 'https://api.duckduckgo.com/?' + parse.urlencode(params)
     with request.urlopen(url) as response:
-        obj = ResponseSchema().loads(response.read())
+        data = ResponseSchema().loads(response.read())
 
-    return obj
+    return build_response_instance(data, qstr)
 
 
 def main():
@@ -234,6 +237,10 @@ def main():
         print()
         print(res.zci)
         print()
+        url = 'https://duckduckgo.com/?q=' + res.original_query
+        see_more = input('Type any character to see more results or nothing to move on: ')
+        if see_more != '':
+            webbrowser.open(url)
     else:
         res = 'Usage: %s [query]' % sys.argv[0]
         print(res)
