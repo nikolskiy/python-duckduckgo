@@ -1,6 +1,6 @@
 name: dda
 base: core18 # the base snap is the execution environment for this snap
-version: '0.1+git'
+version: '0.1'
 summary: DuckDuckGo Instant Answers API brought to your terminal  # 79 char long summary
 description: |
   Fetch a quick answer from your terminal. `dda spell convinient`, `dda ip`, `dda password 15`,
@@ -8,17 +8,16 @@ description: |
   a browser window, if you need to drill down into answers. `dda` will open DuckDuckGo search
   window with your query.
 
-grade: devel # must be 'stable' to release into candidate/stable channels
-confinement: devmode # 'devmode', 'strict'
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict # 'devmode', 'strict'
 
 parts:
   dda:
     plugin: python
     python-version: python3
     source: .
-    requirements:
-      - requirements.txt
 
 apps:
   dda:
     command: bin/dda
+    plugs: [network]
